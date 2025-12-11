@@ -103,6 +103,16 @@ public class ProjectRoleDecoder implements UserRoleDecoder, ConfigDefaults {
         dslContext.commit().execute();
     }
 
+    @Override
+    public String mapRole(String role) {
+        Matcher m = projectRoleMatcher.matcher(role);
+        if (m.matches()) {
+            return m.group(2);
+        }
+
+        return null;
+    }
+
     private void decodeRole(String role, String username, DSLContext dslContext) {
         LOGGER.debug("  Decoding role {} for user {}", role, username);
         Matcher m = projectRoleMatcher.matcher(role);

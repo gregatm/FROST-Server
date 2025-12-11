@@ -18,6 +18,7 @@
 package de.fraunhofer.iosb.ilt.frostserver.auth.keycloak;
 
 import static de.fraunhofer.iosb.ilt.frostserver.auth.keycloak.KeycloakSettings.TAG_REGISTER_USER_LOCALLY;
+import static de.fraunhofer.iosb.ilt.frostserver.auth.keycloak.KeycloakSettings.TAG_USER_ROLE_DECODER_CLASS;
 import static de.fraunhofer.iosb.ilt.frostserver.settings.CoreSettings.TAG_AUTHENTICATE_ONLY;
 import static de.fraunhofer.iosb.ilt.frostserver.settings.CoreSettings.TAG_AUTH_ALLOW_ANON_READ;
 import static de.fraunhofer.iosb.ilt.frostserver.settings.CoreSettings.TAG_AUTH_ROLE_ADMIN;
@@ -45,7 +46,10 @@ import java.security.Principal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
+
 import org.keycloak.adapters.AdapterDeploymentContext;
 import org.keycloak.adapters.AuthenticatedActionsHandler;
 import org.keycloak.adapters.KeycloakDeployment;
@@ -81,6 +85,7 @@ public class KeycloakFilter implements Filter {
     private boolean authenticateOnly;
     private boolean registerUserLocally;
     private DatabaseHandler databaseHandler;
+    private UserRoleDecoder userRoleDecoder;
 
     private AdapterDeploymentContext deploymentContext;
     private NodesRegistrationManagement nodesRegistrationManagement;
@@ -102,6 +107,15 @@ public class KeycloakFilter implements Filter {
         registerUserLocally = authSettings.getBoolean(TAG_REGISTER_USER_LOCALLY, KeycloakSettings.class);
         if (registerUserLocally) {
             databaseHandler = DatabaseHandler.getInstance(coreSettings);
+        }
+
+        String userRoleDecoderClass = authSettings.get(TAG_USER_ROLE_DECODER_CLASS, KeycloakSettings.class);
+        try {
+            Class<?> urdClass = Class.forName(userRoleDecoderClass);
+            userRoleDecoder = (UserRoleDecoder) urdClass.getDeclaredConstructor().newInstance();
+            userRoleDecoder.init(coreSettings);
+        } catch (ReflectiveOperationException ex) {
+            LOGGER.error("Could not create UserRoleDecoder: Class '{}' could not be instantiated", userRoleDecoderClass, ex);
         }
 
         final boolean anonRead = authSettings.getBoolean(TAG_AUTH_ALLOW_ANON_READ, CoreSettings.class);
@@ -216,7 +230,7 @@ public class KeycloakFilter implements Filter {
                 final KeycloakAccount account = findKeycloakAccount(httpRequest);
                 final Principal principalBasic = account.getPrincipal();
                 final String userName = principalBasic.getName();
-                final Set<String> roles = account.getRoles();
+                Set<String> roles = account.getRoles();
                 final PrincipalExtended pe = new PrincipalExtended(userName, roles.contains(roleAdmin), roles);
                 if (registerUserLocally) {
                     databaseHandler.enureUserInUsertable(userName, roles);
@@ -225,6 +239,17 @@ public class KeycloakFilter implements Filter {
                     chain.doFilter(new RequestWrapper(httpRequest, pe), response);
                     return;
                 }
+
+                if (userRoleDecoder != null) {
+                	var rolesTemp = roles.stream()
+                            .map(userRoleDecoder::mapRole)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toSet());
+                	rolesTemp.addAll(roles);
+                	roles = rolesTemp;
+                }
+
+                LOGGER.debug("User has roles '{}'", roles);
                 if (roles.contains(roleMappings.get(requiredRole))) {
                     LOGGER.debug("User has correct role.");
                     chain.doFilter(new RequestWrapper(httpRequest, pe), response);

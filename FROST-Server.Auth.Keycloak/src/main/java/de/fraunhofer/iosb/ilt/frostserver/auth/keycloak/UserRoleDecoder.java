@@ -44,4 +44,6 @@ public interface UserRoleDecoder {
      * @param dslContext The DSL Context for database access.
      */
     public void decodeUserRoles(String username, Set<String> roles, DSLContext dslContext);
+
+    String mapRole(String role);
 }

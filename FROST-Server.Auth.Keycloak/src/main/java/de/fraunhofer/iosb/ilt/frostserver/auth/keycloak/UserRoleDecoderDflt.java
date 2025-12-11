@@ -63,4 +63,9 @@ public class UserRoleDecoderDflt implements UserRoleDecoder {
         }
     }
 
+    @Override
+    public String mapRole(String role) {
+        return null;
+    }
+
 }
